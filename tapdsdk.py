@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import json
+import time
 
 import requests
 import log4p
@@ -23,6 +24,7 @@ class Tapd:
         :param parms:
         :return:
         """
+        time.sleep(1)
         req = requests.get("{0}{1}?{2}".format(API_BASE, method, parms), auth=(self._api_user, self._api_password))
         return json.loads(req.content.decode('utf8'))
 
@@ -33,7 +35,8 @@ class Tapd:
         :param parms:
         :return:
         """
-        req = requests.post(url='{}{}'.format(API_BASE, method), data=parms, auth=(self._api_user, self._api_password))
+        time.sleep(1)
+        req = requests.post('{}{}'.format(API_BASE, method), parms, auth=(self._api_user, self._api_password))
         return json.loads(req.content.decode('utf8'))
 
     def get_projects(self, company_id):
@@ -53,7 +56,7 @@ class Tapd:
         :return:
         """
         method = '/iterations'
-        parm = 'workspace_id={}&fields={}'.format(workspace_id, 'id,name,startdate,enddate,status,status')
+        parm = 'workspace_id={}'.format(workspace_id)
         return self._request_api_get(method, parm)
 
     def get_stories(self, workspace_id, iteration_id):
@@ -64,6 +67,24 @@ class Tapd:
         :return:
         """
         method = '/stories'
-        parm = 'workspace_id={}&iteration_id={}&fields={}'.format(workspace_id, iteration_id,
-                                                                  'id,name,status,size,category_id,type')
+        parm = 'workspace_id={}&iteration_id={}'.format(workspace_id, iteration_id)
+                                                                  # 'id,name,status,size,category_id,type,description')
         return self._request_api_get(method, parm)
+
+    # def get_stories(self, workspace_id, name):
+    #     method = '/stories'
+    #     parm = 'workspace_id={}&name={}&fields={}'.format(workspace_id, name, 'id,name,status,size,category_id,type')
+    #     return self._request_api_get(method, parm)
+
+    def set_stories_attribute(self, workspace_id, stories_id, attribute, value):
+        """
+        更新属性
+        :param workspace_id:
+        :param stories_id:
+        :param attribute:
+        :param value:
+        :return:
+        """
+        method = '/stories'
+        parm = {'workspace_id': workspace_id, 'id': stories_id, attribute: value}
+        return self._subject_api_post(method, parm)

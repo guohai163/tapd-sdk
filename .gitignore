@@ -228,3 +228,4 @@ dmypy.json
 demo.py
 *.log
 .idea/
+config.ini
