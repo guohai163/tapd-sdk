@@ -88,3 +88,47 @@ class Tapd:
         method = '/stories'
         parm = {'workspace_id': workspace_id, 'id': stories_id, attribute: value}
         return self._subject_api_post(method, parm)
+
+    def set_iterate_attribute(self, workspace_id, iteration_id, attribute, value):
+        """
+        更新指定迭代的属性
+        :param workspace_id:
+        :param iteration_id:
+        :param attribute:
+        :param value:
+        :return:
+        """
+        method = '/iterations'
+        parm = {'workspace_id': workspace_id, 'id': iteration_id, 'current_user': 'guohai', attribute: value}
+        return self._subject_api_post(method, parm)
+
+    def get_bug_count(self, workspace_id, iteration_id):
+        """
+        计算符合查询条件的缺陷数量并返回
+        :param workspace_id:
+        :param iteration_id:
+        :return:
+        """
+        method = '/bugs/count'
+        parm = 'workspace_id={}&iteration_id={}'.format(workspace_id, iteration_id)
+        return self._request_api_get(method, parm)
+
+    def get_bug(self, workspace_id):
+        """
+        返回符合查询条件的所有缺陷
+        :param workspace_id:
+        :return:
+        """
+        method = '/bugs'
+        parm = 'workspace_id={}'.format(workspace_id)
+        return self._request_api_get(method, parm)
+
+    def get_story_categories(self, workspace_id):
+        """
+        获取指定项目的需求分类
+        :param workspace_id:
+        :return:
+        """
+        method = '/story_categories'
+        parm = 'workspace_id={}'.format(workspace_id)
+        return self._request_api_get(method, parm)
