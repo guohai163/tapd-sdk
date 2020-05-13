@@ -2,14 +2,146 @@
 import datetime
 import re
 import configparser
-from export import ExportExcel
+import sys
 
+from export import ExportExcel
+import getopt
 import log4p
 
+from jenkinsdata import JenkinsData
 from performance import Performance
 from tapdsdk import Tapd
 
 LOG = log4p.GetLogger('DOperating').logger
+
+
+def usage():
+    print("""python main.py [option]
+    --help       : 打印帮助
+    --update-size: 更新本月迭代规模数
+    --send-excel : 发送上周质量报告
+    """)
+
+
+def get_parm(parm):
+    """
+    获取启动参数
+    :param parm:
+    :return:
+    """
+    try:
+        optlist, args = getopt.getopt(parm, 'h', ['update-size', 'send-excel', 'help', 'jenkins'])
+    except getopt.GetoptError as err:
+        print(str(err))
+        sys.exit(1)
+    for o, a in optlist:
+        if o == '--help':
+            usage()
+            sys.exit()
+        elif o == '--update-size':
+            return 'update-size'
+        elif o == '--send-excel':
+            return 'send-excel'
+        elif o == '--jenkins':
+            return 'jenkins'
+
+
+def send_weekly_report(workspaces, tapd=None, export=None, kpi=None):
+    intrinsic_quality_data = []
+    personnel_data = {}
+    jenkins_server11 = JenkinsData()
+    for work in workspaces:
+        if work['Workspace']['description'] == '运营开发部':
+            print('[{}]. {}'.format(work['Workspace']['id'], work['Workspace']['name']))
+            iterations = tapd.get_iterate(work['Workspace']['id'])
+            for iteration in iterations['data']:
+                print('准备处理迭代{}'.format(iteration['Iteration']['name']))
+                # 计算迭代是否在计算范围内
+                iteration_start_date = datetime.datetime.strptime(iteration['Iteration']['startdate'],
+                                                                  "%Y-%m-%d").date()
+                iteration_end_date = datetime.datetime.strptime(iteration['Iteration']['enddate'], "%Y-%m-%d").date()
+                now_date = datetime.date.today()
+                if iteration_start_date >= (now_date - datetime.timedelta(days=7)) and iteration_end_date < now_date:
+                    print(iteration['Iteration']['name'])
+                    storie = tapd.get_stories(workspace_id=work['Workspace']['id'],
+                                              iteration_id=iteration['Iteration']['id'])
+                    story_categories = tapd.get_story_categories(work['Workspace']['id'])
+                    size_sum = 0
+                    for story in storie['data']:
+                        s = story['Story']
+                        if s['category_id'] != '-1':
+                            category = [category['Category']['name'] for category in story_categories['data']
+                                        if category['Category']['id'] == s['category_id']]
+                            if category[0] == '单独打分任务':
+                                continue
+                        size_sum += len(re.findall('ac-\d+\.', s['description']))
+                        # 给人员增加故事点数
+                        for person in story['Story']['owner'].split(';'):
+                            if person is None or person == '':
+                                continue
+                            person_key = '{}|{}|{}'.format(person, work['Workspace']['id'],
+                                                           iteration['Iteration']['id'])
+                            if personnel_data.get(person_key) is None:
+                                personnel_data[person_key] = [person, work['Workspace']['name'],
+                                                              iteration['Iteration']['name'],
+                                                              iteration['Iteration']['startdate'],
+                                                              iteration['Iteration']['startdate'],
+                                                              size_sum, 0, 0.0]
+                            else:
+                                personnel_data[person_key][5] = personnel_data[person_key][5] + size_sum
+
+                    bug_sum = tapd.get_bug_count(work['Workspace']['id'], iteration['Iteration']['id'])['data']['count']
+                    if size_sum == 0:
+                        bug_raite = 0
+                    else:
+                        bug_raite = bug_sum / size_sum
+                    # 准备为个人赋值BUG数
+                    bug_list = tapd.get_bug(work['Workspace']['id'], iteration['Iteration']['id'])
+                    for bug in bug_list['data']:
+                        for person in bug['Bug']['current_owner'].split(';'):
+                            if person is None or person == '':
+                                continue
+                            person_key = '{}|{}|{}'.format(person, work['Workspace']['id'],
+                                                           iteration['Iteration']['id'])
+                            if personnel_data.get(person_key) is None:
+                                personnel_data[person_key] = [person, work['Workspace']['name'],
+                                                              iteration['Iteration']['name'],
+                                                              iteration['Iteration']['startdate'],
+                                                              iteration['Iteration']['startdate'],
+                                                              0, 1, 0.0]
+                            else:
+                                personnel_data[person_key][6] = personnel_data[person_key][6] + 1
+
+                    # TODO: 通过Jenkins收集质量数据
+                    build_data = kpi.query_build_relation_info(work['Workspace']['name'])
+                    if len(build_data) == 0:
+                        jenkins_data = {'sut': '未查询到', 'fut': '未查询到', 'cut': '未查询到',
+                                        'ssq': '未查询到', 'fsq': '未查询到', 'csq': '未查询到',
+                                        'sci': '未查询到', 'fci': '未查询到', 'cci': '未查询到'}
+                    else:
+                        for build in build_data:
+                            if build.type == 'server':
+                                sq, ut, ci = jenkins_server11.get_intrinsic_quality(build.build_name)
+                                jenkins_data['sut'] = ut
+                                jenkins_data['ssq'] = sq
+
+                    # 要保存的数据，项目名、版本号、版本开始时间、版本结束时间、单元测试、SQ、性能测试、是否可以使用集成环境、是否完善文档
+                    intrinsic_quality_data.append((work['Workspace']['name'], iteration['Iteration']['name'],
+                                                   iteration['Iteration']['startdate'],
+                                                   iteration['Iteration']['startdate'],
+                                                   jenkins_data['sut'], jenkins_data['fut'], jenkins_data['cut'],
+                                                   jenkins_data['ssq'], jenkins_data['fsq'], jenkins_data['csq'],
+                                                   '性能测试',
+                                                   jenkins_data['sci'], jenkins_data['fci'], jenkins_data['cci'],
+                                                   '接口文档',
+                                                   size_sum, bug_sum, bug_raite))
+    if len(intrinsic_quality_data) > 0:
+        result_path = export.intrinsic_quality(intrinsic_quality_data)
+        print(result_path)
+        bug_result_path = export.weekly_report_bug(personnel_data)
+        print(bug_result_path)
+    else:
+        LOG.debug('没有需要导出的数据')
 
 
 def compute_update_size(workspace_id, stories, iteration_id, tapd=None):
@@ -148,24 +280,34 @@ def update_all_size(workspaces, tapd=None):
 
 
 def main():
-    kpi = Performance()
+    """
+    主方法
+    :return:
+    """
+    start_parm = get_parm(sys.argv[1:])
     tapd, tapd_company_id = crate_tapd_sdk()
     workspaces = tapd.get_projects(tapd_company_id)
+    export = ExportExcel('/tmp/')
+    # 初始化KPI操作对象
+    kpi = Performance()
+    if workspaces['status'] != 1:
+        print('返回数据错误{}'.format(workspaces))
+        return
+    if start_parm == 'update-size':
+        update_all_size(workspaces['data'], tapd)
+        return
+    elif start_parm == 'send-excel':
+        send_weekly_report(workspaces['data'], tapd, export, kpi)
+        return
+
     if workspaces['status'] == 1:
         print('请选择你要进入的项目')
         for work in workspaces['data']:
             if work['Workspace']['description'] == '运营开发部':
                 print('[{}]. {}'.format(work['Workspace']['id'], work['Workspace']['name']))
-        print('输入字母\n[a]开始更新所有本月故事的规模。\n[e]导出内在质量\n=======')
+        print('输入字母\n[e]导出内在质量\n=======')
         input_workspace_id = input('请输入项目编号: ')
-        # 准备遍历所有项目更新 规模
-        if input_workspace_id == 'a':
-            update_all_size(workspaces['data'], tapd)
-            return
-        if input_workspace_id == 'e':
-            export = ExportExcel('/tmp/')
-            export.intrinsic_quality('', '')
-            return
+
         iterations = tapd.get_iterate(input_workspace_id)
 
         if iterations['status'] == 1 and len(iterations['data']) > 0:

@@ -58,6 +58,18 @@ class Performance:
         cursor.close()
         return user_code, user_type
 
+    def query_build_relation_info(self, project_name):
+        """
+        通过项目查询构建任务名
+        :return:
+        """
+        sql = 'SELECT [code],[project_code],[project_name],[build_name],[type] FROM [tapd_build_relation_tb] ' \
+              'WHERE project_name=?'
+        cursor = self._db_conn.cursor()
+        row = cursor.execute(sql, project_name).fetchall()
+        cursor.close()
+        return row
+
     def add_new_stories_many(self, stories, version, project_name, project_code, po_code):
         """
         批量增加故事

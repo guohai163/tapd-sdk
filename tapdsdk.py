@@ -113,14 +113,14 @@ class Tapd:
         parm = 'workspace_id={}&iteration_id={}'.format(workspace_id, iteration_id)
         return self._request_api_get(method, parm)
 
-    def get_bug(self, workspace_id):
+    def get_bug(self, workspace_id, iteration_id):
         """
         返回符合查询条件的所有缺陷
         :param workspace_id:
         :return:
         """
         method = '/bugs'
-        parm = 'workspace_id={}'.format(workspace_id)
+        parm = 'workspace_id={}&iteration_id={}'.format(workspace_id, iteration_id)
         return self._request_api_get(method, parm)
 
     def get_story_categories(self, workspace_id):
