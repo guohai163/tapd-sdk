@@ -229,3 +229,4 @@ demo.py
 *.log
 .idea/
 config.ini
+test.py

@@ -1,4 +1,8 @@
 # -*- coding: utf-8 -*-
+import datetime
+
+import jenkinsapi
+import pytz
 from jenkinsapi.jenkins import Jenkins
 
 
@@ -15,12 +19,22 @@ class JenkinsData:
         """
         获取内部质量情况
         :param job_name:
-        :return:
+        :return: sq,ut,ci
         """
-        # TODO: 需要增加try检查
-        job = self._jenkins_conn.get_job(job_name)
+        try:
+            job = self._jenkins_conn.get_job(job_name)
+        except jenkinsapi.custom_exceptions.UnknownJob as err:
+            print(err)
+            return '-', '-', '没有配置CI'
+
+        # if iteration_start_date >= (now_date - datetime.timedelta(days=7)) and iteration_end_date < now_date:
         # TODO: 检查最后一次JOB的时间，如果不在上周，返回'上周未做'
         build = job.get_last_build()
+        build_time = build.get_timestamp()
+        now_date = datetime.datetime.now().replace(tzinfo=pytz.timezone('UTC'))
+        if build_time < (now_date - datetime.timedelta(days=7)) or build_time > now_date:
+            return '上周未做构建', '上周未做构建', '使用CI'
+
         console = build.get_console()
         if console.find('SonarQube质量检查未通过'):
             sq = '未通过'
