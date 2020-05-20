@@ -61,7 +61,7 @@ def send_weekly_report(workspaces, tapd=None, export=None, kpi=None):
                                                                   "%Y-%m-%d").date()
                 iteration_end_date = datetime.datetime.strptime(iteration['Iteration']['enddate'], "%Y-%m-%d").date()
                 now_date = datetime.date.today()
-                if iteration_start_date >= (now_date - datetime.timedelta(days=7)) and iteration_end_date < now_date:
+                if iteration_start_date >= (now_date - datetime.timedelta(days=10)) and iteration_end_date < now_date:
                     print(iteration['Iteration']['name'])
                     storie = tapd.get_stories(workspace_id=work['Workspace']['id'],
                                               iteration_id=iteration['Iteration']['id'])
@@ -74,7 +74,7 @@ def send_weekly_report(workspaces, tapd=None, export=None, kpi=None):
                                         if category['Category']['id'] == s['category_id']]
                             if category[0] == '单独打分任务':
                                 continue
-                        size_sum += len(re.findall('ac-\d+\.', s['description']))
+                        size_sum += len(re.findall('ac-\d', s['description'], re.IGNORECASE))
                         # 给人员增加故事点数
                         for person in story['Story']['owner'].split(';'):
                             if person is None or person == '':
@@ -98,42 +98,61 @@ def send_weekly_report(workspaces, tapd=None, export=None, kpi=None):
                     # 准备为个人赋值BUG数
                     bug_list = tapd.get_bug(work['Workspace']['id'], iteration['Iteration']['id'])
                     for bug in bug_list['data']:
+                        if bug['Bug']['current_owner'] is None:
+                            continue
                         for person in bug['Bug']['current_owner'].split(';'):
                             if person is None or person == '':
                                 continue
+                            # person_info = kpi.query_user_info(person)
+                            # if person_info[1] == 'TEST' or person_info[1] == 'PO':
+                            #     continue
                             person_key = '{}|{}|{}'.format(person, work['Workspace']['id'],
                                                            iteration['Iteration']['id'])
                             if personnel_data.get(person_key) is None:
                                 personnel_data[person_key] = [person, work['Workspace']['name'],
                                                               iteration['Iteration']['name'],
                                                               iteration['Iteration']['startdate'],
-                                                              iteration['Iteration']['startdate'],
+                                                              iteration['Iteration']['enddate'],
                                                               0, 1, 0.0]
                             else:
                                 personnel_data[person_key][6] = personnel_data[person_key][6] + 1
 
                     # TODO: 通过Jenkins收集质量数据
                     build_data = kpi.query_build_relation_info(work['Workspace']['name'])
-                    if len(build_data) == 0:
-                        jenkins_data = {'sut': '未查询到', 'fut': '未查询到', 'cut': '未查询到',
-                                        'ssq': '未查询到', 'fsq': '未查询到', 'csq': '未查询到',
-                                        'sci': '未查询到', 'fci': '未查询到', 'cci': '未查询到'}
-                    else:
+                    jenkins_data = {'sut': '', 'fut': '', 'cut': '',
+                                    'ssq': '', 'fsq': '', 'csq': '',
+                                    'sci': '', 'fci': '', 'cci': ''}
+                    doc_url = ''
+                    if len(build_data) > 0:
                         for build in build_data:
                             if build.type == 'server':
                                 sq, ut, ci = jenkins_server11.get_intrinsic_quality(build.build_name)
                                 jenkins_data['sut'] = ut
                                 jenkins_data['ssq'] = sq
+                                jenkins_data['sci'] = ci
+                                doc_url = build.doc_url
+                            elif build.type == 'web':
+                                sq, ut, ci = jenkins_server11.get_intrinsic_quality(build.build_name)
+                                jenkins_data['fut'] = ut
+                                jenkins_data['fsq'] = sq
+                                jenkins_data['fci'] = ci
+                            elif build.type == 'client':
+                                sq, ut, ci = jenkins_server11.get_intrinsic_quality(build.build_name)
+                                jenkins_data['cut'] = '{}:{}\n{}'.format(build.build_name, jenkins_data['cut'], ut)
+                                jenkins_data['csq'] = '{}:{}\n{}'.format(build.build_name, jenkins_data['csq'], sq)
+                                jenkins_data['cci'] = '{}:{}\n{}'.format(build.build_name, jenkins_data['cci'], ci)
+
+
 
                     # 要保存的数据，项目名、版本号、版本开始时间、版本结束时间、单元测试、SQ、性能测试、是否可以使用集成环境、是否完善文档
                     intrinsic_quality_data.append((work['Workspace']['name'], iteration['Iteration']['name'],
                                                    iteration['Iteration']['startdate'],
-                                                   iteration['Iteration']['startdate'],
+                                                   iteration['Iteration']['enddate'],
                                                    jenkins_data['sut'], jenkins_data['fut'], jenkins_data['cut'],
                                                    jenkins_data['ssq'], jenkins_data['fsq'], jenkins_data['csq'],
-                                                   '性能测试',
+                                                   '上一版本没有性能测试',
                                                    jenkins_data['sci'], jenkins_data['fci'], jenkins_data['cci'],
-                                                   '接口文档',
+                                                   doc_url,
                                                    size_sum, bug_sum, bug_raite))
     if len(intrinsic_quality_data) > 0:
         result_path = export.intrinsic_quality(intrinsic_quality_data)
@@ -144,7 +163,7 @@ def send_weekly_report(workspaces, tapd=None, export=None, kpi=None):
         LOG.debug('没有需要导出的数据')
 
 
-def compute_update_size(workspace_id, stories, iteration_id, tapd=None):
+def compute_update_size(workspace_id, stories, iteration_id=None, tapd=None):
     """
     通过加载回来的得数计算AC+复杂度+规模
     :param iteration_id:
@@ -169,7 +188,7 @@ def compute_update_size(workspace_id, stories, iteration_id, tapd=None):
                 tapd.set_stories_attribute(workspace_id, story_id, 'custom_field_82', 0)
                 tapd.set_stories_attribute(workspace_id, story_id, 'size', 0)
                 continue
-        ac_num = len(re.findall('ac-\d+\.', s['description']))
+        ac_num = len(re.findall('ac-\d', s['description'], re.IGNORECASE))
         if ac_num == 0:
             ac_num = len(re.findall('<div>\d+\.[^<]+</div>', s['description']))
         if ac_num == 0:
@@ -186,7 +205,7 @@ def compute_update_size(workspace_id, stories, iteration_id, tapd=None):
         tapd.set_stories_attribute(workspace_id, story_id, 'size', ac_num + int(dev_num))
         size_sum += ac_num + int(dev_num)
     print('更新成功')
-    compute_update_bug(workspace_id, size_sum, iteration_id, tapd)
+    # compute_update_bug(workspace_id, size_sum, iteration_id, tapd)
     return size_sum
 
 
@@ -276,7 +295,7 @@ def update_all_size(workspaces, tapd=None):
                     print(iteration)
                     storie = tapd.get_stories(workspace_id=work['Workspace']['id'],
                                               iteration_id=iteration['Iteration']['id'])
-                    compute_update_size(work['Workspace']['id'], storie['data'], tapd)
+                    compute_update_size(work['Workspace']['id'], storie['data'], tapd=tapd)
 
 
 def main():
@@ -297,6 +316,7 @@ def main():
         update_all_size(workspaces['data'], tapd)
         return
     elif start_parm == 'send-excel':
+        print('===============\n准备制作每周报表\n===============\n')
         send_weekly_report(workspaces['data'], tapd, export, kpi)
         return
 

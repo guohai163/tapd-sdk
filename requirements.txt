@@ -2,3 +2,6 @@ requests~=2.23.0
 log4p~=2019.7.13.3
 pyodbc~=4.0.30
 XlsxWriter~=1.2.8
+jenkinsapi~=0.3.11
+pytz~=2020.1
+ramlfications~=0.1.9

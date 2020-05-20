@@ -63,7 +63,7 @@ class Performance:
         通过项目查询构建任务名
         :return:
         """
-        sql = 'SELECT [code],[project_code],[project_name],[build_name],[type] FROM [tapd_build_relation_tb] ' \
+        sql = 'SELECT [code],[project_code],[project_name],[build_name],[type],doc_url FROM [tapd_build_relation_tb] ' \
               'WHERE project_name=?'
         cursor = self._db_conn.cursor()
         row = cursor.execute(sql, project_name).fetchall()
