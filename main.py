@@ -61,7 +61,7 @@ def send_weekly_report(workspaces, tapd=None, export=None, kpi=None):
                                                                   "%Y-%m-%d").date()
                 iteration_end_date = datetime.datetime.strptime(iteration['Iteration']['enddate'], "%Y-%m-%d").date()
                 now_date = datetime.date.today()
-                if iteration_start_date >= (now_date - datetime.timedelta(days=10)) and iteration_end_date < now_date:
+                if iteration_start_date >= (now_date - datetime.timedelta(days=12)) and iteration_end_date < now_date:
                     print(iteration['Iteration']['name'])
                     storie = tapd.get_stories(workspace_id=work['Workspace']['id'],
                                               iteration_id=iteration['Iteration']['id'])
@@ -79,13 +79,16 @@ def send_weekly_report(workspaces, tapd=None, export=None, kpi=None):
                         for person in story['Story']['owner'].split(';'):
                             if person is None or person == '':
                                 continue
+                            person_info = kpi.query_user_info(person)
+                            if person_info[1] == 'TEST' or person_info[1] == 'PO':
+                                continue
                             person_key = '{}|{}|{}'.format(person, work['Workspace']['id'],
                                                            iteration['Iteration']['id'])
                             if personnel_data.get(person_key) is None:
                                 personnel_data[person_key] = [person, work['Workspace']['name'],
                                                               iteration['Iteration']['name'],
                                                               iteration['Iteration']['startdate'],
-                                                              iteration['Iteration']['startdate'],
+                                                              iteration['Iteration']['enddate'],
                                                               size_sum, 0, 0.0]
                             else:
                                 personnel_data[person_key][5] = personnel_data[person_key][5] + size_sum
@@ -98,14 +101,14 @@ def send_weekly_report(workspaces, tapd=None, export=None, kpi=None):
                     # 准备为个人赋值BUG数
                     bug_list = tapd.get_bug(work['Workspace']['id'], iteration['Iteration']['id'])
                     for bug in bug_list['data']:
-                        if bug['Bug']['current_owner'] is None:
+                        if bug['Bug']['de'] is None:
                             continue
-                        for person in bug['Bug']['current_owner'].split(';'):
+                        for person in bug['Bug']['de'].split(';'):
                             if person is None or person == '':
                                 continue
-                            # person_info = kpi.query_user_info(person)
-                            # if person_info[1] == 'TEST' or person_info[1] == 'PO':
-                            #     continue
+                            person_info = kpi.query_user_info(person)
+                            if person_info[1] == 'TEST' or person_info[1] == 'PO':
+                                continue
                             person_key = '{}|{}|{}'.format(person, work['Workspace']['id'],
                                                            iteration['Iteration']['id'])
                             if personnel_data.get(person_key) is None:
