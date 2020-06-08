@@ -20,6 +20,7 @@ def usage():
     --help       : 打印帮助
     --update-size: 更新本月迭代规模数
     --send-excel : 发送上周质量报告
+    --mw         ：主观打分
     """)
 
 
@@ -30,7 +31,7 @@ def get_parm(parm):
     :return:
     """
     try:
-        optlist, args = getopt.getopt(parm, 'h', ['update-size', 'send-excel', 'help', 'jenkins'])
+        optlist, args = getopt.getopt(parm, 'h', ['update-size', 'send-excel', 'help', 'jenkins', 'mw'])
     except getopt.GetoptError as err:
         print(str(err))
         sys.exit(1)
@@ -42,8 +43,8 @@ def get_parm(parm):
             return 'update-size'
         elif o == '--send-excel':
             return 'send-excel'
-        elif o == '--jenkins':
-            return 'jenkins'
+        elif o == '--mw':
+            return 'mw'
 
 
 def send_weekly_report(workspaces, tapd=None, export=None, kpi=None):
@@ -145,8 +146,6 @@ def send_weekly_report(workspaces, tapd=None, export=None, kpi=None):
                                 jenkins_data['csq'] = '{}:{}\n{}'.format(build.build_name, jenkins_data['csq'], sq)
                                 jenkins_data['cci'] = '{}:{}\n{}'.format(build.build_name, jenkins_data['cci'], ci)
 
-
-
                     # 要保存的数据，项目名、版本号、版本开始时间、版本结束时间、单元测试、SQ、性能测试、是否可以使用集成环境、是否完善文档
                     intrinsic_quality_data.append((work['Workspace']['name'], iteration['Iteration']['name'],
                                                    iteration['Iteration']['startdate'],
@@ -239,9 +238,10 @@ def crate_tapd_sdk():
     return Tapd(tapd_user, tapd_password), config_base['base']['tapd_company_id']
 
 
-def import_kpi(project, stories, iteration, kpi=None):
+def import_kpi(project, stories, iteration, kpi=None, tapd=None, work_id=None):
     """
     导入绩效体系
+    :param tapd:
     :param project_name:
     :param kpi:
     :return:
@@ -250,11 +250,20 @@ def import_kpi(project, stories, iteration, kpi=None):
         return
     kpi.del_stories_from_version(iteration[0]['name'])
     project_info = kpi.query_project(project[0]['name'])
-    po_code = kpi.query_user_code(stories[0]['Story']['creator'])
+    # po_code = kpi.query_user_code(stories[0]['Story']['creator'])
+    po_code = project_info.create_user_code
     # TODO 测试
     iteration_score = 0
     iteration_user = []
+    story_categories = tapd.get_story_categories(work_id)
     for story in stories:
+        if story['Story']['size'] == '0':
+            continue
+        if story['Story']['category_id'] != '-1':
+            category = [category['Category']['name'] for category in story_categories['data']
+                        if category['Category']['id'] == story['Story']['category_id']]
+            if category[0] == '单独打分任务':
+                continue
         story_code = kpi.add_new_stories(story, iteration[0]['name'], project[0]['name'], project_info.code,
                                          po_code)
         kpi.add_stories_task(story_code, story)
@@ -294,11 +303,42 @@ def update_all_size(workspaces, tapd=None):
                 print('\t准备处理迭代{}'.format(iteration['Iteration']['name']))
                 iteration_date = datetime.datetime.strptime(iteration['Iteration']['startdate'], "%Y-%m-%d")
                 now_date = datetime.date.today()
-                if iteration_date.year == now_date.year and iteration_date.month == now_date.month:
+                if iteration_date.year == now_date.year and iteration_date.month == now_date.month-1:
                     print(iteration)
                     storie = tapd.get_stories(workspace_id=work['Workspace']['id'],
                                               iteration_id=iteration['Iteration']['id'])
                     compute_update_size(work['Workspace']['id'], storie['data'], tapd=tapd)
+
+
+def export_manual_scoring(workspaces, tapd=None, export=None):
+    manual_scordata = []
+    for work in workspaces:
+        if work['Workspace']['description'] != '运营开发部':
+            continue
+        iterations = tapd.get_iterate(work['Workspace']['id'])
+        for iteration in iterations['data']:
+            print('准备处理迭代{}'.format(iteration['Iteration']['name']))
+            # 计算迭代是否在计算范围内
+            iteration_start_date = datetime.datetime.strptime(iteration['Iteration']['startdate'],
+                                                              "%Y-%m-%d").date()
+            iteration_end_date = datetime.datetime.strptime(iteration['Iteration']['enddate'], "%Y-%m-%d").date()
+            now_date = datetime.date.today()
+            if iteration_start_date >= (now_date - datetime.timedelta(days=31)) and iteration_end_date < now_date:
+                print(iteration['Iteration']['name'])
+                storie = tapd.get_stories(workspace_id=work['Workspace']['id'],
+                                          iteration_id=iteration['Iteration']['id'])
+                story_categories = tapd.get_story_categories(work['Workspace']['id'])
+                for story in storie['data']:
+                    s = story['Story']
+                    if s['category_id'] != '-1':
+                        category = [category['Category']['name'] for category in story_categories['data']
+                                    if category['Category']['id'] == s['category_id']]
+                        if category[0] == '单独打分任务':
+                            print(s['name'] + s['description'] + '\t' + s['owner'])
+                            manual_scordata.append((work['Workspace']['name'], s['name'], s['description'], s['owner']))
+    if len(manual_scordata) > 0:
+        print(manual_scordata)
+        export.manual_scoring(manual_scordata)
 
 
 def main():
@@ -322,48 +362,56 @@ def main():
         print('===============\n准备制作每周报表\n===============\n')
         send_weekly_report(workspaces['data'], tapd, export, kpi)
         return
+    elif start_parm == 'mw':
+        print('===============\n准备导出上个月的手工 打分故事\n===============\n')
+        export_manual_scoring(workspaces['data'], tapd, export)
+        return
 
     if workspaces['status'] == 1:
-        print('请选择你要进入的项目')
-        for work in workspaces['data']:
-            if work['Workspace']['description'] == '运营开发部':
-                print('[{}]. {}'.format(work['Workspace']['id'], work['Workspace']['name']))
-        print('输入字母\n[e]导出内在质量\n=======')
-        input_workspace_id = input('请输入项目编号: ')
+        while True:
+            print('请选择你要进入的项目')
+            for work in workspaces['data']:
+                if work['Workspace']['description'] == '运营开发部':
+                    print('[{}]. {}'.format(work['Workspace']['id'], work['Workspace']['name']))
+            print('输入字母\n[e]导出内在质量\n=======')
+            input_workspace_id = input('请输入项目编号: ')
 
-        iterations = tapd.get_iterate(input_workspace_id)
+            iterations = tapd.get_iterate(input_workspace_id)
 
-        if iterations['status'] == 1 and len(iterations['data']) > 0:
-            while True:
-                print('======\n请选择迭代')
-                for iteration in iterations['data']:
-                    print('{}\t{}\t{}\t{}'.format(iteration['Iteration']['id'], iteration['Iteration']['name'],
-                                                  iteration['Iteration']['startdate'],
-                                                  iteration['Iteration']['status']))
-                input_iteration_id = input('请输入迭代ID: ')
-
+            if iterations['status'] == 1 and len(iterations['data']) > 0:
                 while True:
-                    storie = tapd.get_stories(workspace_id=input_workspace_id, iteration_id=input_iteration_id)
-                    for sotry in storie['data']:
-                        print('{}\t{}'.format(sotry['Story']['name'], sotry['Story']['size']))
-                    print('======\n1. 更新项目规模\n2. 导出本迭代到xlsx\n3. 导出故事点数到绩效系统\n4. 更新BUG率\nb. 返回上一级\n0. 退出')
-                    input_select_id = input('======\n请选择您要进行的操作：')
-                    if input_select_id == '1':
-                        compute_update_size(input_workspace_id, storie['data'], input_iteration_id, tapd)
-                    elif input_select_id == '3':
-                        project_name = [work['Workspace'] for work in workspaces['data'] if
-                                        work['Workspace']['id'] == input_workspace_id]
-                        version_num = [iteration['Iteration'] for iteration in iterations['data'] if
-                                       iteration['Iteration']['id'] == input_iteration_id]
-                        import_kpi(project_name, storie['data'], version_num, kpi)
-                    elif input_select_id == '4':
-                        compute_update_bug(input_workspace_id, storie['data'], input_iteration_id, tapd)
-                    elif input_select_id == 'b':
+                    print('======\n请选择迭代')
+                    for iteration in iterations['data']:
+                        print('{}\t{}\t{}\t{}'.format(iteration['Iteration']['id'], iteration['Iteration']['name'],
+                                                      iteration['Iteration']['startdate'],
+                                                      iteration['Iteration']['status']))
+                    input_iteration_id = input('=====\nb. 返回上一级\n0. 退出\n请输入迭代ID: ')
+                    if input_select_id == 'b':
                         break
                     elif input_select_id == '0':
                         return
-        else:
-            print('该项目无迭代存在')
+                    while True:
+                        storie = tapd.get_stories(workspace_id=input_workspace_id, iteration_id=input_iteration_id)
+                        for sotry in storie['data']:
+                            print('{}\t{}'.format(sotry['Story']['name'], sotry['Story']['size']))
+                        print('======\n3. 导出故事点数到绩效系统\nb. 返回上一级\n0. 退出')
+                        input_select_id = input('======\n请选择您要进行的操作：')
+                        if input_select_id == '1':
+                            compute_update_size(input_workspace_id, storie['data'], input_iteration_id, tapd)
+                        elif input_select_id == '3':
+                            project_name = [work['Workspace'] for work in workspaces['data'] if
+                                            work['Workspace']['id'] == input_workspace_id]
+                            version_num = [iteration['Iteration'] for iteration in iterations['data'] if
+                                           iteration['Iteration']['id'] == input_iteration_id]
+                            import_kpi(project_name, storie['data'], version_num, kpi, tapd, input_workspace_id)
+                        # elif input_select_id == '4':
+                        #     compute_update_bug(input_workspace_id, storie['data'], input_iteration_id, tapd)
+                        elif input_select_id == 'b':
+                            break
+                        elif input_select_id == '0':
+                            return
+            else:
+                print('该项目无迭代存在')
 
 
 if __name__ == '__main__':

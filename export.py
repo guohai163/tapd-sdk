@@ -98,3 +98,27 @@ class ExportExcel:
 
         workbook.close()
         print('文件[{}]书写成功'.format(xlsx_path))
+
+    def manual_scoring(self, data):
+        """
+        到处手工打分工作
+        :param data:
+        :return:
+        """
+        xlsx_path = self._cache_path + '/' + str(uuid.uuid1()) + '.xlsx'
+        workbook = xlsxwriter.Workbook(xlsx_path)
+        title_fromat = workbook.add_format({'bold': True, 'border': 1, 'align': 'center', 'valign': 'vcenter',
+                                            'bg_color': 'yellow'})
+
+        worksheet = workbook.add_worksheet('需要手工打分任务')
+        worksheet.write('A1', '项目名', title_fromat)
+        worksheet.write('B1', '工作内容', title_fromat)
+        worksheet.write('C1', '具体描述', title_fromat)
+        worksheet.write('D1', '参与人员', title_fromat)
+        worksheet.write('E1', '打分', title_fromat)
+        for row_index in range(len(data)):
+            for cell_index in range(len(data[row_index])):
+                worksheet.write(row_index + 1, cell_index, data[row_index][cell_index])
+
+        workbook.close()
+        print('文件[{}]书写成功'.format(xlsx_path))
