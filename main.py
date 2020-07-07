@@ -51,11 +51,14 @@ def send_weekly_report(workspaces, tapd=None, export=None, kpi=None):
     intrinsic_quality_data = []
     personnel_data = {}
     jenkins_server11 = JenkinsData()
+    iter_person_data = {}
     for work in workspaces:
+        # 开始遍历所有的项目，并取备注为运营开发部
         if work['Workspace']['description'] == '运营开发部':
             print('[{}]. {}'.format(work['Workspace']['id'], work['Workspace']['name']))
             iterations = tapd.get_iterate(work['Workspace']['id'])
             for iteration in iterations['data']:
+                # 开始遍历迭代
                 print('准备处理迭代{}'.format(iteration['Iteration']['name']))
                 # 计算迭代是否在计算范围内
                 iteration_start_date = datetime.datetime.strptime(iteration['Iteration']['startdate'],
@@ -63,13 +66,18 @@ def send_weekly_report(workspaces, tapd=None, export=None, kpi=None):
                 iteration_end_date = datetime.datetime.strptime(iteration['Iteration']['enddate'], "%Y-%m-%d").date()
                 now_date = datetime.date.today()
                 if iteration_start_date >= (now_date - datetime.timedelta(days=12)) and iteration_end_date < now_date:
+
+                    iter_person_data.clear()
+                    # 只处理在12天以里的迭代
                     print(iteration['Iteration']['name'])
+                    # 获取迭代内的所有故事
                     storie = tapd.get_stories(workspace_id=work['Workspace']['id'],
                                               iteration_id=iteration['Iteration']['id'])
                     story_categories = tapd.get_story_categories(work['Workspace']['id'])
                     size_sum = 0
                     for story in storie['data']:
                         s = story['Story']
+                        # 检查不故事分类不能为单独打分
                         if s['category_id'] != '-1':
                             category = [category['Category']['name'] for category in story_categories['data']
                                         if category['Category']['id'] == s['category_id']]
@@ -85,6 +93,7 @@ def send_weekly_report(workspaces, tapd=None, export=None, kpi=None):
                                 continue
                             person_key = '{}|{}|{}'.format(person, work['Workspace']['id'],
                                                            iteration['Iteration']['id'])
+
                             if personnel_data.get(person_key) is None:
                                 personnel_data[person_key] = [person, work['Workspace']['name'],
                                                               iteration['Iteration']['name'],
@@ -93,6 +102,9 @@ def send_weekly_report(workspaces, tapd=None, export=None, kpi=None):
                                                               size_sum, 0, 0.0]
                             else:
                                 personnel_data[person_key][5] = personnel_data[person_key][5] + size_sum
+
+                            if iter_person_data.get(person) is None:
+                                iter_person_data[person] = True
 
                     bug_sum = tapd.get_bug_count(work['Workspace']['id'], iteration['Iteration']['id'])['data']['count']
                     if size_sum == 0:
@@ -145,7 +157,9 @@ def send_weekly_report(workspaces, tapd=None, export=None, kpi=None):
                                 jenkins_data['cut'] = '{}:{}\n{}'.format(build.build_name, jenkins_data['cut'], ut)
                                 jenkins_data['csq'] = '{}:{}\n{}'.format(build.build_name, jenkins_data['csq'], sq)
                                 jenkins_data['cci'] = '{}:{}\n{}'.format(build.build_name, jenkins_data['cci'], ci)
-
+                    avg_size = 0
+                    if size_sum != 0:
+                        avg_size = size_sum/len(iter_person_data)
                     # 要保存的数据，项目名、版本号、版本开始时间、版本结束时间、单元测试、SQ、性能测试、是否可以使用集成环境、是否完善文档
                     intrinsic_quality_data.append((work['Workspace']['name'], iteration['Iteration']['name'],
                                                    iteration['Iteration']['startdate'],
@@ -155,7 +169,7 @@ def send_weekly_report(workspaces, tapd=None, export=None, kpi=None):
                                                    '上一版本没有性能测试',
                                                    jenkins_data['sci'], jenkins_data['fci'], jenkins_data['cci'],
                                                    doc_url,
-                                                   size_sum, bug_sum, bug_raite))
+                                                   size_sum, avg_size, bug_sum, bug_raite))
     if len(intrinsic_quality_data) > 0:
         result_path = export.intrinsic_quality(intrinsic_quality_data)
         print(result_path)
@@ -303,7 +317,7 @@ def update_all_size(workspaces, tapd=None):
                 print('\t准备处理迭代{}'.format(iteration['Iteration']['name']))
                 iteration_date = datetime.datetime.strptime(iteration['Iteration']['startdate'], "%Y-%m-%d")
                 now_date = datetime.date.today()
-                if iteration_date.year == now_date.year and iteration_date.month == now_date.month-1:
+                if iteration_date.year == now_date.year and iteration_date.month == now_date.month:
                     print(iteration)
                     storie = tapd.get_stories(workspace_id=work['Workspace']['id'],
                                               iteration_id=iteration['Iteration']['id'])

@@ -89,8 +89,9 @@ class ExportExcel:
         worksheet.write('O3', '客户端', title_fromat)
         worksheet.merge_range('P2:P3', '接口文档是否完善', title_fromat)
         worksheet.merge_range('Q2:Q3', '故事点数完成数量', title_fromat)
-        worksheet.merge_range('R2:R3', 'BUG数', title_fromat)
-        worksheet.merge_range('S2:S3', '版本BUG率', title_fromat)
+        worksheet.merge_range('R2:R3', '人均完成规模', title_fromat)
+        worksheet.merge_range('S2:S3', 'BUG数', title_fromat)
+        worksheet.merge_range('T2:T3', '版本BUG率', title_fromat)
         for row_index in range(len(data)):
             worksheet.write(row_index + 3, 0, row_index + 1)
             for cell_index in range(len(data[row_index])):
